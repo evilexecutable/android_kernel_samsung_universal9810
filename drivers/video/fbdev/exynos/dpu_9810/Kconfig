@@ -73,7 +73,7 @@ config EXYNOS_HIBERNATION_THREAD
         default n
 
 config SUPPORT_DOZE
-	bool "Suppot Doze mode to aod service"
+	bool "Support Doze mode to aod service"
 		depends on EXYNOS_DECON_9810
 		default n
 
