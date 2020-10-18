@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 dtb-$(CONFIG_CAMERA_RNS_V07) += exynos/exynos9810.dtb
 dtbo-$(CONFIG_CAMERA_RNS_V07) += samsung/exynos9810-r7_eur_open_05.dtbo
+dtb-$(CONFIG_CAMERA_CROWN) += samsung/exynos9810-crownlte_eur_open_26.dtb
 
 targets += dtbs
 DTB_LIST  := $(dtb-y) $(dtbo-y)
