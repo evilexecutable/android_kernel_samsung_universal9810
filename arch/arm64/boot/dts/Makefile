@@ -1,11 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0
-dtbo-y += samsung/exynos9810-r7_eur_open_04.dtbo
-dtbo-y += samsung/exynos9810-r7_eur_open_00.dtbo
-dtbo-y += samsung/exynos9810-r7_eur_open_02.dtbo
-dtbo-y += samsung/exynos9810-r7_eur_open_05.dtbo
-dtbo-y += samsung/exynos9810-r7_eur_open_01.dtbo
-dtbo-y += samsung/exynos9810-r7_eur_open_03.dtbo
-dtb-y += exynos/exynos9810.dtb
+dtb-$(CONFIG_CAMERA_RNS_V07) += exynos/exynos9810.dtb
+dtbo-$(CONFIG_CAMERA_RNS_V07) += samsung/exynos9810-r7_eur_open_05.dtbo
 
 targets += dtbs
 DTB_LIST  := $(dtb-y) $(dtbo-y)
