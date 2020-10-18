@@ -240,6 +240,8 @@ source "drivers/sensorhub/brcm/Kconfig"
 
 source "drivers/sensors/Kconfig"
 
+source "drivers/optics/Kconfig"
+
 source "drivers/security/samsung/tzic/Kconfig"
 
 source "drivers/spu_verify/Kconfig"

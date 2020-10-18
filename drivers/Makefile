@@ -215,6 +215,10 @@ obj-$(CONFIG_GPS_BCM4753)	+= gps/
 #Sensor
 obj-$(CONFIG_SENSORS)		+= sensors/
 
+# HRM sensor driver
+obj-$(CONFIG_SENSORS_HRMSENSOR)	+= optics/
+obj-$(CONFIG_SENSORS_MAX86915)	+= optics/
+
 # Fingerprint
 obj-$(CONFIG_SENSORS_FINGERPRINT) += fingerprint/
 
