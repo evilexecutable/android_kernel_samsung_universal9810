@@ -125,19 +125,31 @@ config OIS_USE_RUMBA_S4
         help
           Use RUMBA S4 ois driver IC.
 config CAMERA_CROWN
-        bool "This caamera is crown project"
+        bool "This camera is crown project"
         depends on VENDER_MCD
         default n
         help
           This camera is crown project.
+config CAMERA_STAR2
+        bool "This camera is star2 project"
+        depends on VENDER_MCD
+        default n
+        help
+          This camera is star2 project.
+config CAMERA_STAR
+        bool "This camera is star project"
+        depends on VENDER_MCD
+        default n
+        help
+          This camera is star project.
 config CAMERA_RNS_V07
-        bool "This caamera is rns_v07 project"
+        bool "This camera is rns_v07 project"
         depends on VENDER_MCD
         default n
         help
           This camera is rns_v07 project.
 config CAMERA_ATT_V03
-        bool "This caamera is att_v03 project"
+        bool "This camera is att_v03 project"
         depends on VENDER_MCD
         default n
         help

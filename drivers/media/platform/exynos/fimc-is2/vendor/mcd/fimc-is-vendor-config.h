@@ -21,6 +21,10 @@
 
 #if defined(CONFIG_CAMERA_CROWN)
 #include "fimc-is-vendor-config_crown.h"
+#elif defined(CONFIG_CAMERA_STAR2)
+#include "fimc-is-vendor-config_star2.h"
+#elif defined(CONFIG_CAMERA_STAR)
+#include "fimc-is-vendor-config_star.h"
 #elif defined(CONFIG_CAMERA_RNS_V07)
 #include "fimc-is-vendor-config_rns_v07.h"
 #elif defined(CONFIG_CAMERA_ATT_V03)
