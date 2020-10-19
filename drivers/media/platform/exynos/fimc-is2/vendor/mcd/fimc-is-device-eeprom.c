@@ -27,10 +27,9 @@
 #define DRIVER_NAME "fimc_is_eeprom_i2c"
 #define DRIVER_NAME_REAR "rear-eeprom-i2c"
 #define DRIVER_NAME_FRONT "front-eeprom-i2c"
-#define DRIVER_NAME_REAR2 "rear2-eeprom-i2c"
-#define DRIVER_NAME_FRONT2 "front2-eeprom-i2c"
-#define DRIVER_NAME_REAR3 "rear3-eeprom-i2c"
-#define DRIVER_NAME_FRONT3 "front3-eeprom-i2c"
+#define REAR_DATA 0
+#define FRONT_DATA 1
+
 
 /*
  * Samsung Exynos5 SoC series FIMC-IS driver
@@ -44,12 +43,19 @@
  * published by the Free Software Foundation.
  */
 
+int fimc_is_eeprom_parse_dt(struct i2c_client *client)
+{
+	int ret = 0;
+
+	return ret;
+}
+
 int sensor_eeprom_probe(struct i2c_client *client,
 	const struct i2c_device_id *id)
 {
 	struct fimc_is_core *core;
 	static bool probe_retried = false;
-	struct fimc_is_device_eeprom *eeprom;
+	struct fimc_is_device_eeprom *device;
 	struct fimc_is_vender_specific *specific;
 
 	if (!fimc_is_dev)
@@ -66,30 +72,31 @@ int sensor_eeprom_probe(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	if (id->driver_data >= ROM_ID_REAR && id->driver_data < ROM_ID_MAX) {
-		specific->eeprom_client[id->driver_data] = client;
-		specific->rom_valid[id->driver_data] = true;
+	if (id->driver_data == REAR_DATA) {
+		specific->eeprom_client0 = client;
+	} else if (id->driver_data == FRONT_DATA) {
+		specific->eeprom_client1 = client;
 	} else {
 		probe_err("rear eeprom device is failed!");
 		return -ENODEV;
 	}
 
-	eeprom = kzalloc(sizeof(struct fimc_is_device_eeprom), GFP_KERNEL);
-	if (!eeprom) {
+	device = kzalloc(sizeof(struct fimc_is_device_eeprom), GFP_KERNEL);
+	if (!device) {
 		probe_err("fimc_is_device_eeprom is NULL");
 		return -ENOMEM;
 	}
 
-	eeprom->client = client;
-	eeprom->core = core;
-	eeprom->driver_data = id->driver_data;
+	device->client = client;
+	device->core = core;
+	device->driver_data = id->driver_data;
 
-	i2c_set_clientdata(client, eeprom);
+	i2c_set_clientdata(client, device);
 
 	if (client->dev.of_node) {
-		if(fimc_is_vendor_rom_parse_dt(client->dev.of_node, eeprom->driver_data)) {
+		if(fimc_is_eeprom_parse_dt(client)) {
 			probe_err("parsing device tree is fail");
-			kfree(eeprom);
+			kfree(device);
 			return -ENODEV;
 		}
 	}
@@ -113,41 +120,24 @@ probe_defer:
 static int sensor_eeprom_remove(struct i2c_client *client)
 {
 	int ret = 0;
-
 	return ret;
 }
 
 #ifdef CONFIG_OF
 static const struct of_device_id exynos_fimc_is_sensor_eeprom_match[] = {
 	{
-		.compatible = "samsung,rear-eeprom-i2c", .data = (void *)ROM_ID_REAR
+		.compatible = "samsung,rear-eeprom-i2c", .data = (void *)REAR_DATA
 	},
 	{
-		.compatible = "samsung,front-eeprom-i2c", .data = (void *)ROM_ID_FRONT
-	},
-	{
-		.compatible = "samsung,rear2-eeprom-i2c", .data = (void *)ROM_ID_REAR2
-	},
-	{
-		.compatible = "samsung,front2-eeprom-i2c", .data = (void *)ROM_ID_FRONT2
-	},
-	{
-		.compatible = "samsung,rear3-eeprom-i2c", .data = (void *)ROM_ID_REAR3
-	},
-	{
-		.compatible = "samsung,front3-eeprom-i2c", .data = (void *)ROM_ID_FRONT3
+		.compatible = "samsung,front-eeprom-i2c", .data = (void *)FRONT_DATA
 	},
 	{},
 };
 #endif
 
 static const struct i2c_device_id sensor_eeprom_idt[] = {
-	{ DRIVER_NAME_REAR, ROM_ID_REAR },
-	{ DRIVER_NAME_FRONT, ROM_ID_FRONT },
-	{ DRIVER_NAME_REAR2, ROM_ID_REAR2 },
-	{ DRIVER_NAME_FRONT2, ROM_ID_FRONT2 },
-	{ DRIVER_NAME_REAR3, ROM_ID_REAR3 },
-	{ DRIVER_NAME_FRONT3, ROM_ID_FRONT3 },
+	{ DRIVER_NAME_REAR, REAR_DATA },
+	{ DRIVER_NAME_FRONT, FRONT_DATA },
 	{},
 };
 

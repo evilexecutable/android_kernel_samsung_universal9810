@@ -90,6 +90,7 @@ void fimc_is_hw_group_init(struct fimc_is_group *group)
 	group->subdev[ENTRY_M4P] = NULL;
 	group->subdev[ENTRY_VRA] = NULL;
 	group->subdev[ENTRY_DCP] = NULL;
+	group->subdev[ENTRY_SRDZ] = NULL;
 }
 
 int fimc_is_hw_group_cfg(void *group_data)
@@ -220,10 +221,6 @@ int fimc_is_hw_group_open(void *group_data)
 	}
 
 	return ret;
-}
-
-void fimc_is_hw_camif_init(void)
-{
 }
 
 int fimc_is_hw_camif_cfg(void *sensor_data)

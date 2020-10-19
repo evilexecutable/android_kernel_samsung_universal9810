@@ -763,6 +763,11 @@ static const struct vra_param init_vra_param = {
 	},
 };
 
+static char setfile_version_str[60];
+static char ddk_version_str[60];
+static char rta_version_str[60];
+static char comp_version_str[60];
+
 #if !defined(DISABLE_SETFILE)
 static void fimc_is_ischain_cache_flush(struct fimc_is_device_ischain *this,
 	u32 offset, u32 size)
@@ -798,12 +803,102 @@ static void fimc_is_ischain_region_flush(struct fimc_is_device_ischain *device)
 
 void fimc_is_ischain_meta_flush(struct fimc_is_frame *frame)
 {
-
+#ifdef ENABLE_CACHE
+	CALL_BUFOP((void *)frame->cookie_shot, sync_for_device,
+		(void *)frame->cookie_shot,
+		0,
+		frame->shot_size,
+		DMA_TO_DEVICE);
+#endif
 }
 
 void fimc_is_ischain_meta_invalid(struct fimc_is_frame *frame)
 {
+#ifdef ENABLE_CACHE
+	CALL_BUFOP((void *)frame->cookie_shot, sync_for_cpu,
+		(void *)frame->cookie_shot,
+		0,
+		frame->shot_size,
+		DMA_FROM_DEVICE);
+#endif
+}
 
+void fimc_is_ischain_version(enum fimc_is_bin_type type, const char *load_bin, u32 size)
+{
+	char version_str[60];
+
+	switch (type) {
+	case FIMC_IS_BIN_FW:
+		if (size > FIMC_IS_VERSION_SIZE) {
+			memcpy(version_str, &load_bin[size - FIMC_IS_VERSION_SIZE],
+				FIMC_IS_VERSION_SIZE);
+			version_str[FIMC_IS_VERSION_SIZE] = '\0';
+			info("Phone FW version : %s\n", version_str);
+		} else {
+			err("type %d size error(%d)\n", type, size);
+		}
+		break;
+	case FIMC_IS_BIN_SETFILE:
+		if (size > FIMC_IS_SETFILE_VER_OFFSET) {
+			memcpy(setfile_version_str, &load_bin[size - FIMC_IS_SETFILE_VER_OFFSET],
+				FIMC_IS_SETFILE_VER_SIZE);
+			setfile_version_str[FIMC_IS_SETFILE_VER_SIZE] = '\0';
+			info("SETFILE version : %s\n", setfile_version_str);
+		} else {
+			err("type %d size error(%d)\n", type, size);
+		}
+		break;
+	case FIMC_IS_BIN_DDK_LIBRARY:
+		if (size > FIMC_IS_VERSION_OFFSET) {
+			memcpy(ddk_version_str, &load_bin[size - FIMC_IS_VERSION_OFFSET],
+				FIMC_IS_VERSION_BIN_SIZE);
+			ddk_version_str[FIMC_IS_VERSION_BIN_SIZE] = '\0';
+			info("DDK version : %s\n", ddk_version_str);
+		} else {
+			err("type %d size error(%d)\n", type, size);
+		}
+		break;
+	case FIMC_IS_BIN_RTA_LIBRARY:
+		if (size > FIMC_IS_VERSION_OFFSET) {
+			memcpy(rta_version_str, &load_bin[size - FIMC_IS_VERSION_OFFSET],
+				FIMC_IS_VERSION_BIN_SIZE);
+			rta_version_str[FIMC_IS_VERSION_BIN_SIZE] = '\0';
+			info("RTA version : %s\n", rta_version_str);
+		} else {
+			err("type %d size error(%d)\n", type, size);
+		}
+		break;
+	case FIMC_IS_BIN_COMPANION:
+		if (size < sizeof(comp_version_str)) {
+			memcpy(comp_version_str, load_bin, size);
+			comp_version_str[size] = '\0';
+			info("COMPANION version : %s\n", comp_version_str);
+		} else {
+			err("type %d size error(%d)\n", type, size);
+		}
+		break;
+	default:
+		info("SKIP version info: type(%d)\n", type);
+		break;
+	}
+}
+
+char* fimc_is_ischain_get_version(enum fimc_is_bin_type type)
+{
+	switch (type) {
+	case FIMC_IS_BIN_SETFILE:
+		return setfile_version_str;
+	case FIMC_IS_BIN_DDK_LIBRARY:
+		return ddk_version_str;
+	case FIMC_IS_BIN_RTA_LIBRARY:
+		return rta_version_str;
+	case FIMC_IS_BIN_COMPANION:
+		return comp_version_str;
+	default:
+		info("SKIP version info: type(%d)\n", type);
+		break;
+	}
+	return "N/A";
 }
 
 void fimc_is_ischain_savefirm(struct fimc_is_device_ischain *this)
@@ -842,7 +937,7 @@ static int fimc_is_ischain_loadfirm(struct fimc_is_device_ischain *device,
 	set_fs(KERNEL_DS);
 	fp = filp_open(vender->fw_path, O_RDONLY, 0);
 	if (IS_ERR_OR_NULL(fp)) {
-		fw_load_ret = fimc_is_vender_fw_filp_open(vender, &fp, IS_BIN_FW);
+		fw_load_ret = fimc_is_vender_fw_filp_open(vender, &fp, FIMC_IS_BIN_FW);
 		if (fw_load_ret == FW_SKIP) {
 			goto request_fw;
 		} else if (fw_load_ret == FW_FAIL) {
@@ -872,6 +967,7 @@ static int fimc_is_ischain_loadfirm(struct fimc_is_device_ischain *device,
 
 	memcpy((void *)device->minfo->kvaddr, (void *)buf, fsize);
 	fimc_is_ischain_cache_flush(device, 0, fsize + 1);
+	fimc_is_ischain_version(FIMC_IS_BIN_FW, buf, fsize);
 
 request_fw:
 	if (fw_requested) {
@@ -904,6 +1000,7 @@ request_fw:
 
 		memcpy((void *)device->minfo->kvaddr, fw_blob->data, fw_blob->size);
 		fimc_is_ischain_cache_flush(device, 0, fw_blob->size + 1);
+		fimc_is_ischain_version(FIMC_IS_BIN_FW, fw_blob->data, fw_blob->size);
 	}
 
 out:
@@ -916,7 +1013,7 @@ out:
 		}
 		set_fs(old_fs);
 	} else {
-		if (fw_blob)
+		if (!IS_ERR_OR_NULL(fw_blob))
 			release_firmware(fw_blob);
 	}
 	if (ret)
@@ -1024,7 +1121,7 @@ err:
 		}
 		set_fs(old_fs);
 	} else {
-		if (fw_blob)
+		if (!IS_ERR_OR_NULL(fw_blob))
 			release_firmware(fw_blob);
 	}
 
@@ -1071,7 +1168,7 @@ static int fimc_is_ischain_loadsetf(struct fimc_is_device_ischain *device,
 	set_fs(KERNEL_DS);
 	fp = filp_open(vender->setfile_path[position], O_RDONLY, 0);
 	if (IS_ERR_OR_NULL(fp)) {
-		fw_load_ret = fimc_is_vender_fw_filp_open(vender, &fp, IS_BIN_SETFILE);
+		fw_load_ret = fimc_is_vender_fw_filp_open(vender, &fp, FIMC_IS_BIN_SETFILE);
 		if (fw_load_ret == FW_SKIP) {
 			goto request_fw;
 		} else if (fw_load_ret == FW_FAIL) {
@@ -1103,7 +1200,7 @@ static int fimc_is_ischain_loadsetf(struct fimc_is_device_ischain *device,
 	address = (void *)(device->minfo->kvaddr + load_addr);
 	memcpy((void *)address, (void *)buf, fsize);
 	fimc_is_ischain_cache_flush(device, load_addr, fsize + 1);
-	carve_binary_version(IS_BIN_SETFILE, position, buf, fsize);
+	fimc_is_ischain_version(FIMC_IS_BIN_SETFILE, buf, fsize);
 
 request_fw:
 	if (fw_requested) {
@@ -1139,8 +1236,7 @@ request_fw:
 		address = (void *)(device->minfo->kvaddr + load_addr);
 		memcpy(address, fw_blob->data, fw_blob->size);
 		fimc_is_ischain_cache_flush(device, load_addr, fw_blob->size + 1);
-		carve_binary_version(IS_BIN_SETFILE, position,
-				(void *)fw_blob->data, fw_blob->size);
+		fimc_is_ischain_version(FIMC_IS_BIN_SETFILE, fw_blob->data, (u32)fw_blob->size);
 	}
 
 out:
@@ -1153,7 +1249,7 @@ out:
 		}
 		set_fs(old_fs);
 	} else {
-		if (fw_blob)
+		if (!IS_ERR_OR_NULL(fw_blob))
 			release_firmware(fw_blob);
 	}
 
@@ -1553,7 +1649,6 @@ p_err:
 	return ret;
 }
 
-#ifdef ENABLE_IS_CORE
 int fimc_is_itf_map(struct fimc_is_device_ischain *device,
 	u32 group, u32 shot_addr, u32 shot_size)
 {
@@ -1579,7 +1674,6 @@ static int fimc_is_itf_unmap(struct fimc_is_device_ischain *device,
 
 	return ret;
 }
-#endif
 
 int fimc_is_itf_stream_on(struct fimc_is_device_ischain *device)
 {
@@ -1999,7 +2093,6 @@ int fimc_is_itf_grp_shot(struct fimc_is_device_ischain *device,
 	unsigned long flags;
 	struct fimc_is_group *head;
 	struct fimc_is_framemgr *framemgr;
-	bool is_remosaic_preview = false;
 #endif
 	FIMC_BUG(!device);
 	FIMC_BUG(!group);
@@ -2031,15 +2124,8 @@ int fimc_is_itf_grp_shot(struct fimc_is_device_ischain *device,
 	mgrdbgs(1, " SHOT(%d)\n", device, group, frame, frame->index);
 
 #ifdef CONFIG_USE_SENSOR_GROUP
-
-#ifdef ENABLE_REMOSAIC_CAPTURE_WITH_ROTATION
-	if (!test_bit(FIMC_IS_ISCHAIN_REPROCESSING, &device->state)
-		&& CHK_REMOSAIC_SCN(frame->shot->ctl.aa.captureIntent))
-		is_remosaic_preview = true;
-#endif
-
 	head = GET_HEAD_GROUP_IN_DEVICE(FIMC_IS_DEVICE_ISCHAIN, group);
-	if (head && !is_remosaic_preview) {
+	if (head) {
 		ret = fimc_is_itf_shot_wrap(device, group, frame);
 	} else {
 		framemgr = GET_HEAD_GROUP_FRAMEMGR(group);
@@ -2066,7 +2152,7 @@ int fimc_is_ischain_runtime_suspend(struct device *dev)
 {
 	int ret = 0;
 	struct platform_device *pdev = to_platform_device(dev);
-	struct fimc_is_core *core = (struct fimc_is_core *)dev_get_drvdata(dev);
+	struct fimc_is_core *core = (struct fimc_is_core *)platform_get_drvdata(pdev);
 	struct fimc_is_mem *mem = &core->resourcemgr.mem;
 	struct exynos_platform_fimc_is *pdata;
 
@@ -2153,7 +2239,7 @@ int fimc_is_ischain_runtime_resume(struct device *dev)
 {
 	int ret = 0;
 	struct platform_device *pdev = to_platform_device(dev);
-	struct fimc_is_core *core = (struct fimc_is_core *)dev_get_drvdata(dev);
+	struct fimc_is_core *core = (struct fimc_is_core *)platform_get_drvdata(pdev);
 	struct fimc_is_mem *mem = &core->resourcemgr.mem;
 	struct exynos_platform_fimc_is *pdata;
 
@@ -2266,7 +2352,7 @@ int fimc_is_ischain_power(struct fimc_is_device_ischain *device, int on)
 	struct fimc_is_core *core;
 	struct fimc_is_vender *vender;
 	struct fimc_is_interface *itf;
-#if defined(CONFIG_VENDER_MCD)
+#ifdef CONFIG_VENDER_MCD
 	struct fimc_is_vender_specific *specific;
 #endif
 
@@ -2274,10 +2360,10 @@ int fimc_is_ischain_power(struct fimc_is_device_ischain *device, int on)
 	FIMC_BUG(!device->interface);
 
 	dev = &device->pdev->dev;
-	core = (struct fimc_is_core *)dev_get_drvdata(dev);
+	core = (struct fimc_is_core *)platform_get_drvdata(device->pdev);
 	vender = &core->vender;
 	itf = device->interface;
-#if defined(CONFIG_VENDER_MCD)
+#ifdef CONFIG_VENDER_MCD
 	specific = core->vender.private_data;
 #endif
 
@@ -2312,7 +2398,7 @@ int fimc_is_ischain_power(struct fimc_is_device_ischain *device, int on)
 		}
 
 		if (core->current_position == SENSOR_POSITION_FRONT
-#if defined(CONFIG_VENDER_MCD)
+#ifdef CONFIG_VENDER_MCD
 		|| specific->suspend_resume_disable
 #endif
 		) {
@@ -2376,7 +2462,7 @@ int fimc_is_ischain_power(struct fimc_is_device_ischain *device, int on)
 			goto p_err;
 		}
 
-#if defined(CONFIG_VENDER_MCD)
+#ifdef CONFIG_VENDER_MCD
 		if (specific->need_cold_reset)
 			specific->need_cold_reset = false;
 #endif
@@ -2435,7 +2521,7 @@ int fimc_is_ischain_power(struct fimc_is_device_ischain *device, int on)
 	FIMC_BUG(!device->interface);
 
 	dev = &device->pdev->dev;
-	core = (struct fimc_is_core *)dev_get_drvdata(dev);
+	core = (struct fimc_is_core *)platform_get_drvdata(device->pdev);
 	vender = &core->vender;
 
 	if (on) {
@@ -2652,7 +2738,6 @@ int fimc_is_ischain_buf_tag(struct fimc_is_device_ischain *device,
 	struct fimc_is_framemgr *framemgr;
 	struct fimc_is_frame *frame;
 	struct fimc_is_queue *queue;
-	struct camera2_node *capture;
 
 	framemgr = GET_SUBDEV_FRAMEMGR(subdev);
 	FIMC_BUG(!framemgr);
@@ -2681,21 +2766,21 @@ int fimc_is_ischain_buf_tag(struct fimc_is_device_ischain *device,
 		case V4L2_PIX_FMT_NV61:
 			for (i = 0; i < frame->planes; i++) {
 				j = i * 2;
-				target_addr[j] = (typeof(*target_addr))frame->dvaddr_buffer[i];
+				target_addr[j] = frame->dvaddr_buffer[i];
 				target_addr[j + 1] = target_addr[j] + (width * height);
 			}
 			break;
 		case V4L2_PIX_FMT_YVU420M:
 			for (i = 0; i < frame->planes; i += 3) {
-				target_addr[i] = (typeof(*target_addr))frame->dvaddr_buffer[i];
-				target_addr[i + 1] = (typeof(*target_addr))frame->dvaddr_buffer[i + 2];
-				target_addr[i + 2] = (typeof(*target_addr))frame->dvaddr_buffer[i + 1];
+				target_addr[i] = frame->dvaddr_buffer[i];
+				target_addr[i + 1] = frame->dvaddr_buffer[i + 2];
+				target_addr[i + 2] = frame->dvaddr_buffer[i + 1];
 			}
 			break;
 		case V4L2_PIX_FMT_YUV420:
 			for (i = 0; i < frame->planes; i++) {
 				j = i * 3;
-				target_addr[j] = (typeof(*target_addr))frame->dvaddr_buffer[i];
+				target_addr[j] = frame->dvaddr_buffer[i];
 				target_addr[j + 1] = target_addr[j] + (width * height);
 				target_addr[j + 2] = target_addr[j + 1] + (width * height / 4);
 			}
@@ -2703,7 +2788,7 @@ int fimc_is_ischain_buf_tag(struct fimc_is_device_ischain *device,
 		case V4L2_PIX_FMT_YVU420: /* AYV12 spec: The width should be aligned by 16 pixel. */
 			for (i = 0; i < frame->planes; i++) {
 				j = i * 3;
-				target_addr[j] = (typeof(*target_addr))frame->dvaddr_buffer[i];
+				target_addr[j] = frame->dvaddr_buffer[i];
 				target_addr[j + 2] = target_addr[j] + (ALIGN(width, 16) * height);
 				target_addr[j + 1] = target_addr[j + 2] + (ALIGN(width / 2, 16) * height / 2);
 			}
@@ -2711,7 +2796,7 @@ int fimc_is_ischain_buf_tag(struct fimc_is_device_ischain *device,
 		case V4L2_PIX_FMT_YUV422P:
 			for (i = 0; i < frame->planes; i++) {
 				j = i * 3;
-				target_addr[j] = (typeof(*target_addr))frame->dvaddr_buffer[i];
+				target_addr[j] = frame->dvaddr_buffer[i];
 				target_addr[j + 1] = target_addr[j] + (width * height);
 				target_addr[j + 2] = target_addr[j + 1] + (width * height / 2);
 			}
@@ -2720,57 +2805,31 @@ int fimc_is_ischain_buf_tag(struct fimc_is_device_ischain *device,
 		case V4L2_PIX_FMT_NV21M_S10B:
 			for (i = 0; i < frame->planes; i += 2) {
 				j = i * 2;
-				/* Y_ADDR, UV_ADDR, Y_2BIT_ADDR, UV_2BIT_ADDR */
-				target_addr[j] = (typeof(*target_addr))frame->dvaddr_buffer[i];
-				target_addr[j + 1] = (typeof(*target_addr))frame->dvaddr_buffer[i + 1];
-				target_addr[j + 2] = target_addr[j] + NV12M_Y_SIZE(width, height);
-				target_addr[j + 3] = target_addr[j + 1] + NV12M_CBCR_SIZE(width, height);
+				target_addr[j] = frame->dvaddr_buffer[i];		/* Y_ADDR */
+				target_addr[j + 1] = frame->dvaddr_buffer[i + 1];		/* UV_ADDR */
+				target_addr[j + 2] = target_addr[j] + NV12M_Y_SIZE(width, height);	/* Y_2BIT_ADDR */
+				target_addr[j + 3] = target_addr[j + 1] + NV12M_CBCR_SIZE(width, height);	/* UV_2BIT_ADDR */
 			}
 			break;
 		case V4L2_PIX_FMT_NV16M_S10B:
 		case V4L2_PIX_FMT_NV61M_S10B:
 			for (i = 0; i < frame->planes; i += 2) {
 				j = i * 2;
-				/* Y_ADDR, UV_ADDR, Y_2BIT_ADDR, UV_2BIT_ADDR */
-				target_addr[j] = (typeof(*target_addr))frame->dvaddr_buffer[i];
-				target_addr[j + 1] = (typeof(*target_addr))frame->dvaddr_buffer[i + 1];
-				target_addr[j + 2] = target_addr[j] + NV16M_Y_SIZE(width, height);
-				target_addr[j + 3] = target_addr[j + 1] + NV16M_CBCR_SIZE(width, height);
+				target_addr[j] = frame->dvaddr_buffer[i];		/* Y_ADDR */
+				target_addr[j + 1] = frame->dvaddr_buffer[i + 1];		/* UV_ADDR */
+				target_addr[j + 2] = target_addr[j] + NV16M_Y_SIZE(width, height);	/* Y_2BIT_ADDR */
+				target_addr[j + 3] = target_addr[j + 1] + NV16M_CBCR_SIZE(width, height);	/* UV_2BIT_ADDR */
 			}
 			break;
 		default:
 			for (i = 0; i < frame->planes; i++)
-				target_addr[i] = (typeof(*target_addr))frame->dvaddr_buffer[i];
+				target_addr[i] = frame->dvaddr_buffer[i];
 			break;
 		}
-
-		capture = &ldr_frame->shot_ext->node_group.capture[subdev->cid];
 
 		frame->fcount = ldr_frame->fcount;
 		frame->stream->findex = ldr_frame->index;
 		frame->stream->fcount = ldr_frame->fcount;
-
-		if (likely(capture->vid == subdev->vid)) {
-			frame->stream->input_crop_region[0] = capture->input.cropRegion[0];
-			frame->stream->input_crop_region[1] = capture->input.cropRegion[1];
-			frame->stream->input_crop_region[2] = capture->input.cropRegion[2];
-			frame->stream->input_crop_region[3] = capture->input.cropRegion[3];
-			frame->stream->output_crop_region[0] = capture->output.cropRegion[0];
-			frame->stream->output_crop_region[1] = capture->output.cropRegion[1];
-			frame->stream->output_crop_region[2] = capture->output.cropRegion[2];
-			frame->stream->output_crop_region[3] = capture->output.cropRegion[3];
-		} else {
-			mserr("capture vid is changed(%d != %d)", subdev, subdev, subdev->vid, capture->vid);
-			frame->stream->input_crop_region[0] = 0;
-			frame->stream->input_crop_region[1] = 0;
-			frame->stream->input_crop_region[2] = 0;
-			frame->stream->input_crop_region[3] = 0;
-			frame->stream->output_crop_region[0] = 0;
-			frame->stream->output_crop_region[1] = 0;
-			frame->stream->output_crop_region[2] = 0;
-			frame->stream->output_crop_region[3] = 0;
-		}
-
 		set_bit(subdev->id, &ldr_frame->out_flag);
 		trans_frame(framemgr, frame, FS_PROCESS);
 	} else {
@@ -3595,7 +3654,7 @@ p_err:
 
 static int fimc_is_ischain_init_wrap(struct fimc_is_device_ischain *device,
 	u32 stream_type,
-	u32 position)
+	u32 module_id)
 {
 	int ret = 0;
 	u32 sindex;
@@ -3686,40 +3745,37 @@ static int fimc_is_ischain_init_wrap(struct fimc_is_device_ischain *device,
 			}
 
 			priv = core->vender.private_data;
-			if (position < SENSOR_POSITION_MAX) {
-				/* physical sensor postion */
-				sensor_id = priv->sensor_id[position];
-				if (!sensor_id) {
-					merr("invalid module position(P)(%d)", device, position);
-					ret = -EINVAL;
-					goto p_err;
-				}
-			} else {
-				/* virtual sensor postion */
-				switch (position) {
+
+			switch (module_id) {
+			case SENSOR_POSITION_REAR:
+				sensor_id = priv->rear_sensor_id;
+				break;
+			case SENSOR_POSITION_FRONT:
+				sensor_id = priv->front_sensor_id;
+				break;
 #ifdef CONFIG_SECURE_CAMERA_USE
-				case SENSOR_POSITION_SECURE:
-					sensor_id = priv->secure_sensor_id;
-					break;
+			case SENSOR_POSITION_SECURE:
+				sensor_id = priv->secure_sensor_id;
+				break;
 #endif
-				case SENSOR_POSITION_VIRTUAL:
-					sensor_id = SENSOR_NAME_VIRTUAL;
-					break;
-				default:
-					merr("invalid module positon(V)(%d)", device, position);
-					ret = -EINVAL;
-					goto p_err;
-				}
+			case SENSOR_POSITION_REAR2:
+				sensor_id = priv->rear_second_sensor_id;
+				break;
+			default:
+				merr("invalid module position(%d)", device, module->position);
+				ret = -EINVAL;
+				goto p_err;
 			}
 
 			if (module->sensor_id == sensor_id) {
 				device->sensor = sensor;
+				module_id = sensor_id;
 				break;
 			}
 		}
 
 		if (sindex >= FIMC_IS_SENSOR_COUNT) {
-			merr("failed to find valid module at position %d", device, position);
+			merr("moduel id(%d) is invalid", device, module_id);
 			ret = -EINVAL;
 			goto p_err;
 		}
@@ -3730,7 +3786,7 @@ static int fimc_is_ischain_init_wrap(struct fimc_is_device_ischain *device,
 			goto p_err;
 		}
 
-		device->path.sensor_name = module->sensor_id;
+		device->path.sensor_name = module_id;
 		device->path.mipi_csi = sensor->pdata->csi_ch;
 		device->path.fimc_lite = sensor->pdata->flite_ch;
 
@@ -3758,7 +3814,7 @@ static int fimc_is_ischain_init_wrap(struct fimc_is_device_ischain *device,
 			set_bit(FIMC_IS_SENSOR_ITF_REGISTER, &sensor->state);
 		}
 
-		ret = fimc_is_ischain_init(device, module->sensor_id);
+		ret = fimc_is_ischain_init(device, module_id);
 		if (ret) {
 			merr("fimc_is_ischain_init is fail(%d)", device, ret);
 			goto p_err;
@@ -3910,6 +3966,8 @@ int fimc_is_ischain_start_wrap(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
+	set_bit(FIMC_IS_ISCHAIN_START, &device->state);
+
 p_err:
 	return ret;
 }
@@ -4054,7 +4112,7 @@ int fimc_is_ischain_3aa_close(struct fimc_is_device_ischain *device,
 
 int fimc_is_ischain_3aa_s_input(struct fimc_is_device_ischain *device,
 	u32 stream_type,
-	u32 position,
+	u32 module_id,
 	u32 video_id,
 	u32 input_type,
 	u32 stream_leader)
@@ -4077,7 +4135,7 @@ int fimc_is_ischain_3aa_s_input(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-	ret = fimc_is_ischain_init_wrap(device, stream_type, position);
+	ret = fimc_is_ischain_init_wrap(device, stream_type, module_id);
 	if (ret) {
 		merr("fimc_is_ischain_init_wrap is fail(%d)", device, ret);
 		goto p_err;
@@ -4149,7 +4207,6 @@ p_err:
 static int fimc_is_ischain_3aa_reqbufs(void *qdevice,
 	struct fimc_is_queue *queue, u32 count)
 {
-#ifdef ENABLE_IS_CORE
 	int ret = 0;
 	struct fimc_is_device_ischain *device = qdevice;
 	struct fimc_is_group *group;
@@ -4165,9 +4222,6 @@ static int fimc_is_ischain_3aa_reqbufs(void *qdevice,
 	}
 
 	return ret;
-#else
-	return 0;
-#endif
 }
 
 static int fimc_is_ischain_3aa_s_format(void *qdevice,
@@ -4344,7 +4398,7 @@ int fimc_is_ischain_isp_close(struct fimc_is_device_ischain *device,
 
 int fimc_is_ischain_isp_s_input(struct fimc_is_device_ischain *device,
 	u32 stream_type,
-	u32 position,
+	u32 module_id,
 	u32 video_id,
 	u32 input_type,
 	u32 stream_leader)
@@ -4366,7 +4420,7 @@ int fimc_is_ischain_isp_s_input(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-	ret = fimc_is_ischain_init_wrap(device, stream_type, position);
+	ret = fimc_is_ischain_init_wrap(device, stream_type, module_id);
 	if (ret) {
 		merr("fimc_is_ischain_init_wrap is fail(%d)", device, ret);
 		goto p_err;
@@ -4397,7 +4451,7 @@ static int fimc_is_ischain_isp_start(void *qdevice,
 
 	ret = fimc_is_ischain_start_wrap(device, group);
 	if (ret) {
-		merr("fimc_is_ischain_start_wrap is fail(%d)", device, ret);
+		merr("fimc_is_group_start is fail(%d)", device, ret);
 		goto p_err;
 	}
 
@@ -4438,7 +4492,6 @@ p_err:
 static int fimc_is_ischain_isp_reqbufs(void *qdevice,
 	struct fimc_is_queue *queue, u32 count)
 {
-#ifdef ENABLE_IS_CORE
 	int ret = 0;
 	struct fimc_is_device_ischain *device = qdevice;
 	struct fimc_is_group *group;
@@ -4454,9 +4507,6 @@ static int fimc_is_ischain_isp_reqbufs(void *qdevice,
 	}
 
 	return ret;
-#else
-	return 0;
-#endif
 }
 
 static int fimc_is_ischain_isp_s_format(void *qdevice,
@@ -4636,7 +4686,7 @@ int fimc_is_ischain_dis_close(struct fimc_is_device_ischain *device,
 
 int fimc_is_ischain_dis_s_input(struct fimc_is_device_ischain *device,
 	u32 stream_type,
-	u32 position,
+	u32 module_id,
 	u32 video_id,
 	u32 input_type,
 	u32 stream_leader)
@@ -4658,7 +4708,7 @@ int fimc_is_ischain_dis_s_input(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-	ret = fimc_is_ischain_init_wrap(device, stream_type, position);
+	ret = fimc_is_ischain_init_wrap(device, stream_type, module_id);
 	if (ret) {
 		merr("fimc_is_ischain_init_wrap is fail(%d)", device, ret);
 		goto p_err;
@@ -4689,7 +4739,7 @@ static int fimc_is_ischain_dis_start(void *qdevice,
 
 	ret = fimc_is_ischain_start_wrap(device, group);
 	if (ret) {
-		merr("fimc_is_ischain_start_wrap is fail(%d)", device, ret);
+		merr("fimc_is_group_start is fail(%d)", device, ret);
 		goto p_err;
 	}
 
@@ -4730,7 +4780,6 @@ p_err:
 static int fimc_is_ischain_dis_reqbufs(void *qdevice,
 	struct fimc_is_queue *queue, u32 count)
 {
-#ifdef ENABLE_IS_CORE
 	int ret = 0;
 	struct fimc_is_device_ischain *device = qdevice;
 	struct fimc_is_group *group;
@@ -4746,9 +4795,6 @@ static int fimc_is_ischain_dis_reqbufs(void *qdevice,
 	}
 
 	return ret;
-#else
-	return 0;
-#endif
 }
 
 static int fimc_is_ischain_dis_s_format(void *qdevice,
@@ -4928,7 +4974,7 @@ int fimc_is_ischain_dcp_close(struct fimc_is_device_ischain *device,
 
 int fimc_is_ischain_dcp_s_input(struct fimc_is_device_ischain *device,
 	u32 stream_type,
-	u32 position,
+	u32 module_id,
 	u32 video_id,
 	u32 input_type,
 	u32 stream_leader)
@@ -4950,7 +4996,7 @@ int fimc_is_ischain_dcp_s_input(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-	ret = fimc_is_ischain_init_wrap(device, stream_type, position);
+	ret = fimc_is_ischain_init_wrap(device, stream_type, module_id);
 	if (ret) {
 		merr("fimc_is_ischain_init_wrap is fail(%d)", device, ret);
 		goto p_err;
@@ -4981,7 +5027,7 @@ static int fimc_is_ischain_dcp_start(void *qdevice,
 
 	ret = fimc_is_ischain_start_wrap(device, group);
 	if (ret) {
-		merr("fimc_is_ischain_start_wrap is fail(%d)", device, ret);
+		merr("fimc_is_group_start is fail(%d)", device, ret);
 		goto p_err;
 	}
 
@@ -5022,7 +5068,6 @@ p_err:
 static int fimc_is_ischain_dcp_reqbufs(void *qdevice,
 	struct fimc_is_queue *queue, u32 count)
 {
-#ifdef ENABLE_IS_CORE
 	int ret = 0;
 	struct fimc_is_device_ischain *device = qdevice;
 	struct fimc_is_group *group;
@@ -5038,9 +5083,6 @@ static int fimc_is_ischain_dcp_reqbufs(void *qdevice,
 	}
 
 	return ret;
-#else
-	return 0;
-#endif
 }
 
 static int fimc_is_ischain_dcp_s_format(void *qdevice,
@@ -5220,7 +5262,7 @@ int fimc_is_ischain_mcs_close(struct fimc_is_device_ischain *device,
 
 int fimc_is_ischain_mcs_s_input(struct fimc_is_device_ischain *device,
 	u32 stream_type,
-	u32 position,
+	u32 module_id,
 	u32 video_id,
 	u32 otf_input,
 	u32 stream_leader)
@@ -5243,7 +5285,7 @@ int fimc_is_ischain_mcs_s_input(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-	ret = fimc_is_ischain_init_wrap(device, stream_type, position);
+	ret = fimc_is_ischain_init_wrap(device, stream_type, module_id);
 	if (ret) {
 		merr("fimc_is_ischain_init_wrap is fail(%d)", device, ret);
 		goto p_err;
@@ -5315,7 +5357,6 @@ p_err:
 static int fimc_is_ischain_mcs_reqbufs(void *qdevice,
 	struct fimc_is_queue *queue, u32 count)
 {
-#ifdef ENABLE_IS_CORE
 	int ret = 0;
 	struct fimc_is_device_ischain *device = qdevice;
 	struct fimc_is_group *group;
@@ -5331,9 +5372,6 @@ static int fimc_is_ischain_mcs_reqbufs(void *qdevice,
 	}
 
 	return ret;
-#else
-	return 0;
-#endif
 }
 
 static int fimc_is_ischain_mcs_s_format(void *qdevice,
@@ -5506,7 +5544,7 @@ int fimc_is_ischain_vra_close(struct fimc_is_device_ischain *device,
 
 int fimc_is_ischain_vra_s_input(struct fimc_is_device_ischain *device,
 	u32 stream_type,
-	u32 position,
+	u32 module_id,
 	u32 video_id,
 	u32 otf_input,
 	u32 stream_leader)
@@ -5528,7 +5566,7 @@ int fimc_is_ischain_vra_s_input(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-	ret = fimc_is_ischain_init_wrap(device, stream_type, position);
+	ret = fimc_is_ischain_init_wrap(device, stream_type, module_id);
 	if (ret) {
 		merr("fimc_is_ischain_init_wrap is fail(%d)", device, ret);
 		goto p_err;
@@ -5559,7 +5597,7 @@ static int fimc_is_ischain_vra_start(void *qdevice,
 
 	ret = fimc_is_ischain_start_wrap(device, group);
 	if (ret) {
-		merr("fimc_is_ischain_start_wrap is fail(%d)", device, ret);
+		merr("fimc_is_group_start is fail(%d)", device, ret);
 		goto p_err;
 	}
 
@@ -5600,7 +5638,6 @@ p_err:
 static int fimc_is_ischain_vra_reqbufs(void *qdevice,
 	struct fimc_is_queue *queue, u32 count)
 {
-#ifdef ENABLE_IS_CORE
 	int ret = 0;
 	struct fimc_is_device_ischain *device = qdevice;
 	struct fimc_is_group *group;
@@ -5616,9 +5653,6 @@ static int fimc_is_ischain_vra_reqbufs(void *qdevice,
 	}
 
 	return ret;
-#else
-	return 0;
-#endif
 }
 
 static int fimc_is_ischain_vra_s_format(void *qdevice,
@@ -6353,12 +6387,10 @@ static int fimc_is_ischain_3aa_shot(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-#ifdef ENABLE_IS_CORE
 	if (unlikely(!test_bit(FRAME_MEM_MAPPED, &frame->mem_state))) {
 		fimc_is_itf_map(device, GROUP_ID(group->id), frame->dvaddr_shot, frame->shot_size);
 		set_bit(FRAME_MEM_MAPPED, &frame->mem_state);
 	}
-#endif
 
 	frame->shot->ctl.vendor_entry.lowIndexParam = 0;
 	frame->shot->ctl.vendor_entry.highIndexParam = 0;
@@ -6411,22 +6443,16 @@ static int fimc_is_ischain_3aa_shot(struct fimc_is_device_ischain *device,
 
 		if (captureIntent != AA_CAPTURE_INTENT_CUSTOM) {
 			frame->shot->ctl.aa.captureIntent = captureIntent;
+			group->intent_ctl.captureIntent = AA_CAPTURE_INTENT_CUSTOM;
 			frame->shot->ctl.aa.vendor_captureCount = group->intent_ctl.vendor_captureCount;
-			frame->shot->ctl.aa.vendor_captureExposureTime = group->intent_ctl.vendor_captureExposureTime;
-			frame->shot->ctl.aa.vendor_captureEV = group->intent_ctl.vendor_captureEV;
-			if (group->remainIntentCount > 0) {
-				group->remainIntentCount--;
-			} else {
-				group->intent_ctl.captureIntent = AA_CAPTURE_INTENT_CUSTOM;
-				group->intent_ctl.vendor_captureCount = 0;
+			group->intent_ctl.vendor_captureCount = 0;
+			if (group->intent_ctl.vendor_captureExposureTime > 0) {
+				frame->shot->ctl.aa.vendor_captureExposureTime = group->intent_ctl.vendor_captureExposureTime;
 				group->intent_ctl.vendor_captureExposureTime = 0;
-				group->intent_ctl.vendor_captureEV = 0;
 			}
-			minfo("frame count(%d), intent(%d), count(%d), EV(%d), captureExposureTime(%d) remainIntentCount(%d)\n",
-				device, frame->fcount,
+			minfo("frame count(%d), intent(%d), count(%d) captureExposureTime(%d)\n", device, frame->fcount,
 				frame->shot->ctl.aa.captureIntent, frame->shot->ctl.aa.vendor_captureCount,
-				frame->shot->ctl.aa.vendor_captureEV, frame->shot->ctl.aa.vendor_captureExposureTime,
-				group->remainIntentCount);
+				frame->shot->ctl.aa.vendor_captureExposureTime);
 		}
 
 		if (group->lens_ctl.aperture != 0) {
@@ -6591,12 +6617,10 @@ static int fimc_is_ischain_isp_shot(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-#ifdef ENABLE_IS_CORE
 	if (unlikely(!test_bit(FRAME_MEM_MAPPED, &frame->mem_state))) {
 		fimc_is_itf_map(device, GROUP_ID(group->id), frame->dvaddr_shot, frame->shot_size);
 		set_bit(FRAME_MEM_MAPPED, &frame->mem_state);
 	}
-#endif
 
 	frame->shot->ctl.vendor_entry.lowIndexParam = 0;
 	frame->shot->ctl.vendor_entry.highIndexParam = 0;
@@ -6756,12 +6780,10 @@ static int fimc_is_ischain_dis_shot(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-#ifdef ENABLE_IS_CORE
 	if (unlikely(!test_bit(FRAME_MEM_MAPPED, &frame->mem_state))) {
 		fimc_is_itf_map(device, GROUP_ID(group->id), frame->dvaddr_shot, frame->shot_size);
 		set_bit(FRAME_MEM_MAPPED, &frame->mem_state);
 	}
-#endif
 
 	frame->shot->ctl.vendor_entry.lowIndexParam = 0;
 	frame->shot->ctl.vendor_entry.highIndexParam = 0;
@@ -6884,12 +6906,10 @@ static int fimc_is_ischain_dcp_shot(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-#ifdef ENABLE_IS_CORE
 	if (unlikely(!test_bit(FRAME_MEM_MAPPED, &frame->mem_state))) {
 		fimc_is_itf_map(device, GROUP_ID(group->id), frame->dvaddr_shot, frame->shot_size);
 		set_bit(FRAME_MEM_MAPPED, &frame->mem_state);
 	}
-#endif
 
 	frame->shot->ctl.vendor_entry.lowIndexParam = 0;
 	frame->shot->ctl.vendor_entry.highIndexParam = 0;
@@ -6999,13 +7019,10 @@ static int fimc_is_ischain_mcs_shot(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-
-#ifdef ENABLE_IS_CORE
 	if (unlikely(!test_bit(FRAME_MEM_MAPPED, &frame->mem_state))) {
 		fimc_is_itf_map(device, GROUP_ID(group->id), frame->dvaddr_shot, frame->shot_size);
 		set_bit(FRAME_MEM_MAPPED, &frame->mem_state);
 	}
-#endif
 
 	frame->shot->ctl.vendor_entry.lowIndexParam = 0;
 	frame->shot->ctl.vendor_entry.highIndexParam = 0;
@@ -7136,12 +7153,10 @@ static int fimc_is_ischain_vra_shot(struct fimc_is_device_ischain *device,
 		goto p_err;
 	}
 
-#ifdef ENABLE_IS_CORE
 	if (unlikely(!test_bit(FRAME_MEM_MAPPED, &frame->mem_state))) {
 		fimc_is_itf_map(device, GROUP_ID(group->id), frame->dvaddr_shot, frame->shot_size);
 		set_bit(FRAME_MEM_MAPPED, &frame->mem_state);
 	}
-#endif
 
 	frame->shot->ctl.vendor_entry.lowIndexParam = 0;
 	frame->shot->ctl.vendor_entry.highIndexParam = 0;

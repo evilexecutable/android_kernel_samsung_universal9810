@@ -98,22 +98,21 @@ int sensor_ak7345_actuator_init(struct v4l2_subdev *subdev, u32 val)
 		goto p_err;
 	}
 
-	I2C_MUTEX_LOCK(actuator->i2c_lock);
 	ret = fimc_is_sensor_addr8_read8(client, 0x03, &product_id);
 	if (ret < 0)
-		goto p_err_mutex;
+		goto p_err;
 
 #if 0
 	if (product_id != AK7345_PRODUCT_ID) {
 		err("AK7345 is not detected(%d), Slave: %d\n", product_id, client->addr);
-		goto p_err_mutex;
+		goto p_err;
 	}
 #endif
 
 	/* EEPROM AF calData address */
 	if (gPtr_lib_support.binary_load_flg) {
 		/* get pan_focus */
-		cal_addr = gPtr_lib_support.minfo->kvaddr_cal[SENSOR_POSITION_REAR] + EEPROM_OEM_BASE;
+		cal_addr = gPtr_lib_support.minfo->kvaddr_rear_cal + EEPROM_OEM_BASE;
 		memcpy((void *)&cal_data, (void *)cal_addr, sizeof(cal_data));
 
 		if (cal_data > 0)
@@ -124,13 +123,13 @@ int sensor_ak7345_actuator_init(struct v4l2_subdev *subdev, u32 val)
 
 	ret = sensor_ak7345_write_position(client, first_position);
 	if (ret <0)
-		goto p_err_mutex;
+		goto p_err;
 	actuator->position = first_position;
 
 	/* Go active mode */
 	ret = fimc_is_sensor_addr8_write8(client, 0x02, 0);
 	if (ret <0)
-		goto p_err_mutex;
+		goto p_err;
 
 	dbg_actuator("initial position: %d\n", first_position);
 
@@ -140,9 +139,6 @@ int sensor_ak7345_actuator_init(struct v4l2_subdev *subdev, u32 val)
 	do_gettimeofday(&end);
 	pr_info("[%s] time %lu us", __func__, (end.tv_sec - st.tv_sec) * 1000000 + (end.tv_usec - st.tv_usec));
 #endif
-
-p_err_mutex:
-	I2C_MUTEX_UNLOCK(actuator->i2c_lock);
 
 p_err:
 	return ret;
@@ -214,7 +210,6 @@ int sensor_ak7345_actuator_set_position(struct v4l2_subdev *subdev, u32 *info)
 		goto p_err;
 	}
 
-	I2C_MUTEX_LOCK(actuator->i2c_lock);
 	position = *info;
 	if (position > AK7345_POS_MAX_SIZE) {
 		err("Invalid af position(position : %d, Max : %d).\n",
@@ -240,7 +235,6 @@ int sensor_ak7345_actuator_set_position(struct v4l2_subdev *subdev, u32 *info)
 	pr_info("[%s] time %lu us", __func__, (end.tv_sec - st.tv_sec) * 1000000 + (end.tv_usec - st.tv_usec));
 #endif
 p_err:
-	I2C_MUTEX_UNLOCK(actuator->i2c_lock);
 	return ret;
 }
 
@@ -372,9 +366,6 @@ static int sensor_ak7345_actuator_probe(struct i2c_client *client,
 	actuator->max_position = AK7345_POS_MAX_SIZE;
 	actuator->pos_size_bit = AK7345_POS_SIZE_BIT;
 	actuator->pos_direction = AK7345_POS_DIRECTION;
-	actuator->i2c_lock = NULL;
-	actuator->need_softlanding = 0;
-	actuator->actuator_ops = NULL;
 
 	device->subdev_actuator[place] = subdev_actuator;
 	device->actuator[place] = actuator;
@@ -389,10 +380,10 @@ static int sensor_ak7345_actuator_probe(struct i2c_client *client,
 	return ret;
 
 p_err:
-	if (actuator)
+	if (!actuator)
 		kzfree(actuator);
 
-	if (subdev_actuator)
+	if (!subdev_actuator)
 		kzfree(subdev_actuator);
 
 	return ret;

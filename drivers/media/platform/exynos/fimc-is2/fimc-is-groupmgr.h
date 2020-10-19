@@ -217,7 +217,6 @@ struct fimc_is_group {
 #endif
 #endif
 	u32				aeflashMode; /* Flash Mode Control */
-	u32				remainIntentCount;
 };
 
 enum fimc_is_group_task_state {

@@ -48,6 +48,7 @@
 #define SOC_SSVC1
 #define SOC_SSVC2
 /* #define SOC_DCP *//* TODO */
+/* #define SOC_SRDZ *//* TODO */
 
 /* Post Processing Configruation */
 /* #define ENABLE_DRC */
